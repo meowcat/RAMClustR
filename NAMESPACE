@@ -1,3 +1,4 @@
 export(idMS_writefun)
 export(MSMSwrite)
 export(ramclustR)
+export(ramclustR2)
