@@ -235,7 +235,7 @@ ramclustR<- function(  xcmsObj=NULL,
   cat('\n', paste("calculating ramclustR similarity: nblocks = ", bl))
   cat('\n', "finished:")
   
-  RCsim<-function(bl)  {
+  RCsim<-function(bl, env)  {
     cat(bl,' ')
     j<-eval1[bl,"j"]  #columns
     k<-eval1[bl,"k"]  #rows
@@ -250,7 +250,8 @@ ramclustR<- function(  xcmsObj=NULL,
     if(startc<=startr) { 
       mint<-min(abs(outer(range(times[startr:stopr]), range(times[startc:stopc]), FUN="-")))
       if(mint<=maxt) {
-        temp1<-round(exp(-(( (abs(outer(times[startr:stopr], times[startc:stopc], FUN="-"))))^2)/(2*(st^2))), 
+        dt <- abs(outer(times[startr:stopr], times[startc:stopc], FUN="-"))
+        temp1<-round(exp(-(( (dt))^2)/(2*(st^2))), 
                      
                      digits=20 )
         #stopifnot(max(temp)!=0)
@@ -261,20 +262,25 @@ ramclustR<- function(  xcmsObj=NULL,
                       
                       digits=20 )		
         #ffcor[startr:stopr, startc:stopc]<-temp
-        temp<- 1-(temp1*temp2)
-        temp[which(is.nan(temp))]<-1
-        temp[which(is.na(temp))]<-1
-        temp[which(is.infinite(temp))]<-1
-        ffmat[startr:stopr, startc:stopc]<-temp
+        temp<- (temp1*temp2)
+        temp[which(is.nan(temp))]<-0
+        temp[which(is.na(temp))]<-0
+        temp[which(is.infinite(temp))]<-0
+        # set distant entries to 0!
+        temp[dt > maxt] <- 0
+        cat("writing block")
+        env$ffmat[startr:stopr, startc:stopc]<-temp
+        cat("done writing block")
         rm(temp1); rm(temp2); rm(temp)
         gc()} 
-      if(mint>maxt) {ffmat[startr:stopr, startc:stopc]<- 1}
+      ##if(mint>maxt) {ffmat[startr:stopr, startc:stopc]<- 1}
     }
     gc()}
   # ffmat[995:1002,995:1002]
   
+  env <- environment()
   ##Call the similarity scoring function
-  system.time(sapply(1:bl, RCsim))
+  system.time(sapply(1:bl, function(bl) RCsim(bl, env)))
   #RCsim(bl=1:bl)
   
   b<-Sys.time()
