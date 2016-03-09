@@ -89,9 +89,15 @@ ramclustR<- function(  xcmsObj=NULL,
       your average chromatographic peak width at half max (seconds)")
     if(is.null(sr)) sr<-0.5
     if(is.null(maxt)) maxt<-60
-    MSdata<-read.csv(ms, header=TRUE, check.names=FALSE)
+    if(!is.matrix(ms) & !is.data.frame(ms))
+      MSdata<-read.csv(ms, header=TRUE, check.names=FALSE)
+    else
+      MSdata <- as.data.frame(ms)
     if(!is.null(idmsms)){
-      MSMSdata<-read.csv(idmsms, header=TRUE, check.names=FALSE)}
+      if(!is.matrix(idmsms) & !is.data.frame(idmsms))
+        MSMSdata<-read.csv(idmsms, header=TRUE, check.names=FALSE)}
+      else
+        MSMSdata <- as.data.frame(idmsms)
     if(is.null(idmsms)) { MSMSdata<-MSdata}
     if(is.null(sampNameCol)) {featcol<-1:ncol(MSdata)} else {
       featcol<-setdiff(1:(ncol(MSdata)), sampNameCol)}
