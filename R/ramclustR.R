@@ -21,7 +21,7 @@
 #' @author Corey Broeckling
 #' @export
 
-ramclustR<- function(  xcmsObj=NULL,
+ramclustR <- function(  xcmsObj=NULL,
                        ms=NULL, 
                        idmsms=NULL,
                        taglocation="filepaths",
@@ -46,9 +46,85 @@ ramclustR<- function(  xcmsObj=NULL,
                        minModuleSize=2,
                        linkage="average",
                        mzdec=4,
-                       cleanup=TRUE
+                       cleanup=TRUE,
+                       maxt_enforce = FALSE
 ) {
+  timeEnv <- new.env()
   
+  ramclustR.data <- .ramclustR.preprocess(xcmsObj,
+                                         ms, 
+                                         idmsms, 
+                                         taglocation, 
+                                         MStag, 
+                                         idMSMStag, 
+                                         featdelim, 
+                                         timepos, 
+                                         st, 
+                                         sr, 
+                                         maxt,
+                                         hmax,
+                                         sampNameCol,
+                                         mspout, 
+                                         mslev,
+                                         ExpDes,
+                                         normalize,
+                                         timeEnv = timeEnv)
+  ffmat <- .RAMclust.rcsim(ramclustR.data$data1, 
+                           ramclustR.data$data2,
+                           ramclustR.data$times,
+                           ramclustR.data$sr,
+                           ramclustR.data$st, 
+                           ramclustR.data$maxt,
+                           maxt_enforce, 
+                           blocksize,
+                           timeEnv = timeEnv)
+  
+  RC <- .RAMclust.fastclust(ffmat, blocksize, mult, linkage, ramclustR.data$featnames,
+                            timeEnv = timeEnv)
+  
+  RC <- .ramclustR.postprocess(RC, hmax, deepSplit, minModuleSize, ramclustR.data$times,
+                               ramclustR.data$mzs, ramclustR.data$xcmsOrd, collapse, mspout, mslev,
+                                     usePheno, xcmsObj, mzdec,
+                               ramclustR.data$data1,
+                               ramclustR.data$data2,
+                               ramclustR.data$ExpDes,
+                               timeEnv = timeEnv)
+                                         
+  return(RC)
+  
+}
+
+.ramclustR.preprocess <- function(
+  xcmsObj=NULL,
+  ms=NULL, 
+  idmsms=NULL,
+  taglocation="filepaths",
+  MStag=NULL,
+  idMSMStag=NULL, 
+  featdelim="_", 
+  timepos=2, 
+  st=NULL, 
+  sr=NULL, 
+  maxt=NULL, 
+#  deepSplit=FALSE, 
+#  blocksize=2000,
+#  mult=5,
+  hmax=NULL,
+  sampNameCol=NULL,
+#  collapse=TRUE,
+#  usePheno=TRUE,
+  mspout=TRUE, 
+  mslev=1,
+  ExpDes=NULL,
+  normalize="TIC",
+# minModuleSize=2,
+#  linkage="average",
+# mzdec=4,
+#  cleanup=TRUE,
+#  maxt_enforce = FALSE
+ timeEnv = environment()
+)
+{
   require(xcms, quietly=TRUE)
   require(ff, quietly=TRUE)
   require(fastcluster, quietly=TRUE)
@@ -78,7 +154,7 @@ ramclustR<- function(  xcmsObj=NULL,
   if( normalize!="none"  & normalize!="TIC" & normalize!="quantile") {
     stop("please selected either 'none', 'TIC', or 'quantile' for the normalize setting")}
   
-  a<-Sys.time()   
+  timeEnv$a<-Sys.time()   
   
   if(is.null(hmax)) {hmax<-0.3}
   ##in using non-xcms data as input
@@ -212,6 +288,17 @@ ramclustR<- function(  xcmsObj=NULL,
   dimnames(data1)[[2]]<-featnames
   dimnames(data2)[[2]]<-featnames
   
+  return(list(
+    data1=data1, data2=data2, mzs=mzs, times=times, xcmsOrd=xcmsOrd, featnames=featnames,
+    sr=sr, st=st, maxt=maxt, hmax=hmax, ExpDes=ExpDes
+  ))
+  
+}
+  
+
+.RAMclust.rcsim <- function(data1, data2, times, sr=NULL, st=NULL, maxt=NULL, maxt_enforce=FALSE, blocksize=2000,
+                            timeEnv = environment())
+{
   ##establish some constants for downstream processing
   n<-ncol(data1)
   vlength<-(n*(n-1))/2
@@ -267,10 +354,9 @@ ramclustR<- function(  xcmsObj=NULL,
         temp[which(is.na(temp))]<-0
         temp[which(is.infinite(temp))]<-0
         # set distant entries to 0!
-        temp[dt > maxt] <- 0
-        cat("writing block")
+        if(maxt_enforce)
+          temp[dt > maxt] <- 0
         env$ffmat[startr:stopr, startc:stopc]<-temp
-        cat("done writing block")
         rm(temp1); rm(temp2); rm(temp)
         gc()} 
       ##if(mint>maxt) {ffmat[startr:stopr, startc:stopc]<- 1}
@@ -283,19 +369,27 @@ ramclustR<- function(  xcmsObj=NULL,
   system.time(sapply(1:bl, function(bl) RCsim(bl, env)))
   #RCsim(bl=1:bl)
   
-  b<-Sys.time()
+  timeEnv$b<-Sys.time()
   
   cat('\n','\n' )
   cat(paste("RAMClust feature similarity matrix calculated and stored:", 
-            round(difftime(b, a, units="mins"), digits=1), "minutes"))
+            round(difftime(timeEnv$b, timeEnv$a, units="mins"), digits=1), "minutes"))
   
   #cleanup
   #delete.ff(ffrt)
   #rm(ffrt)
   #delete.ff(ffcor)
   #rm(ffcor)
-  gc() 
-  
+  gc()
+  return(ffmat)
+}
+
+
+.RAMclust.fastclust <- function(ffmat, blocksize, mult, linkage, featnames,
+                                timeEnv = environment())
+{
+  n <- nrow(ffmat)
+  vlength<-(n*(n-1))/2
   
   ##extract lower diagonal of ffmat as vector
   blocksize<-mult*round(blocksize^2/n)
@@ -327,10 +421,10 @@ ramclustR<- function(  xcmsObj=NULL,
   RC<-structure(RC, Size=(n), Diag=FALSE, Upper=FALSE, method="RAMClustR", Labels=featnames, class="dist")
   gc()
   
-  c<-Sys.time()    
+  timeEnv$c<-Sys.time()    
   cat('\n', '\n')
   cat(paste("RAMClust distances converted to distance object:", 
-            round(difftime(c, b, units="mins"), digits=1), "minutes"))
+            round(difftime(timeEnv$c, timeEnv$b, units="mins"), digits=1), "minutes"))
   
   ##cleanup
   delete.ff(ffmat)
@@ -340,11 +434,20 @@ ramclustR<- function(  xcmsObj=NULL,
   
   ##cluster using fastcluster package,
   system.time(RC<-hclust(RC, method=linkage))
+  return(RC) 
+}
+  
+.ramclustR.postprocess <- function(RC, hmax, deepSplit, minModuleSize, times, mzs, xcmsOrd, collapse, mspout, mslev,
+                                   usePheno, xcmsObj, mzdec, data1, data2, ExpDes,
+                                   timeEnv = environment())
+{
+  n <- ncol(data1)
+  
   gc()
-  d<-Sys.time()    
+  timeEnv$d<-Sys.time()    
   cat('\n', '\n')    
   cat(paste("fastcluster based clustering complete:", 
-            round(difftime(d, c, units="mins"), digits=1), "minutes"))
+            round(difftime(timeEnv$d, timeEnv$c, units="mins"), digits=1), "minutes"))
   if(minModuleSize==1) {
     clus<-cutreeDynamicTree(RC, maxTreeHeight=hmax, deepSplit=deepSplit, minModuleSize=2)
     sing<-which(clus==0)
@@ -410,16 +513,16 @@ ramclustR<- function(  xcmsObj=NULL,
   RC$nfeat<-as.vector(table(RC$featclus)[2:max(RC$featclus)])
   RC$nsing<-length(which(RC$featclus==0))
   
-  e<-Sys.time() 
+  timeEnv$e<-Sys.time() 
   cat('\n', '\n')
   cat(paste("dynamicTreeCut based pruning complete:", 
-            round(difftime(e, d, units="mins"), digits=1), "minutes"))
+            round(difftime(timeEnv$e, timeEnv$d, units="mins"), digits=1), "minutes"))
   
-  f<-Sys.time()
+  timeEnv$f<-Sys.time()
   cat('\n', '\n')
-  cat(paste("RAMClust has condensed", n, "features into",  max(clus), "spectra in", round(difftime(f, a, 
-                                                                                                   
-                                                                                                   units="mins"), digits=1), "minutes", '\n'))
+  cat(paste("RAMClust has condensed", n, "features into",  max(clus), "spectra in", round(difftime(
+    timeEnv$f, timeEnv$a, 
+    units="mins"), digits=1), "minutes", '\n'))
   
   RC$ExpDes<-ExpDes
   RC$cmpd<-paste("C", 1:length(RC$clrt), sep="")
@@ -443,10 +546,10 @@ ramclustR<- function(  xcmsObj=NULL,
     if(usePheno & !is.null(xcmsObj)) {dimnames(RC$SpecAbund)[[1]]<-as.vector(xcmsObj@phenoData[,1])[msfiles]}
     #if(!usePheno) {dimnames(RC$SpecAbund)[[1]]<-dimnames(RC$MSdata)[[1]]} 
     #if(usePheno) {dimnames(RC$SpecAbund)[[1]]<-xcmsObj@phenoData[,1][msfiles]}
-    g<-Sys.time()
+    timeEnv$g<-Sys.time()
     cat('\n', '\n')
     cat(paste("RAMClustR has collapsed feature quantities
-             into spectral quantities:", round(difftime(g, f, units="mins"), digits=1), "minutes", '\n'))
+             into spectral quantities:", round(difftime(timeEnv$g, timeEnv$f, units="mins"), digits=1), "minutes", '\n'))
   }
   
   rm(data1)
