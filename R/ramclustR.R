@@ -71,7 +71,22 @@ ramclustR <- function(  xcmsObj=NULL,
                                          ExpDes,
                                          normalize,
                                          timeEnv = timeEnv)
-  ffmat <- .ramclustR.RCsim(ramclustR.data$data1, 
+  
+  n <- nrow(ramclustR.data$data1)
+  
+  # Calculate which blocks need to be processed
+  blocksEval <- .ramclustR.blockpred(ramclustR.data$data1, 
+                   ramclustR.data$data2,
+                   ramclustR.data$times,
+                   ramclustR.data$sr,
+                   ramclustR.data$st, 
+                   ramclustR.data$maxt,
+                   maxt_enforce, 
+                   blocksize,
+                   timeEnv = timeEnv)
+  
+  
+  blocks <- .ramclustR.RCsim(ramclustR.data$data1, 
                            ramclustR.data$data2,
                            ramclustR.data$times,
                            ramclustR.data$sr,
@@ -79,18 +94,38 @@ ramclustR <- function(  xcmsObj=NULL,
                            ramclustR.data$maxt,
                            maxt_enforce, 
                            blocksize,
-                           timeEnv = timeEnv)
+                           timeEnv = timeEnv,
+                           blocksEval = blocksEval)
   #return(ffmat)
   # estimate memory of fastclust vs liclust
-  if(estimate.mem)
-    .ramclustR.est.mem(ffmat, blocksize, mult)
+  # if(estimate.mem)
+  #   .ramclustR.est.mem(ffmat, blocksize, mult)
   
   if(method[[1]] == "fastclust")
-    RC <- .ramclustR.fastclust(ffmat, blocksize, mult, linkage, ramclustR.data$featnames,
-                              timeEnv = timeEnv)
+    stop("fastclust not currently supported for the new RCsim calculation")
+    # RC <- .ramclustR.fastclust(ffmat, blocksize, mult, linkage, ramclustR.data$featnames,
+    #                           timeEnv = timeEnv)
   else if(method[[1]] == "liclust")
-    RC <- .ramclustR.liclust(ffmat, blocksize, mult, linkage, ramclustR.data$featnames,
-                             timeEnv = timeEnv)
+  {
+   require(fastliclust)
+
+  blocksize<-mult*round(blocksize^2/n)
+    flInput <- .ramclustR.blockconvert(blocks)
+
+  rm(blocks)
+  gc()
+  browser()
+  timeEnv$c<-Sys.time()    
+  cat('\n', '\n')
+  cat(paste("RAMClust distances converted to linkage graph matrix:", 
+            round(difftime(timeEnv$c, timeEnv$b, units="mins"), digits=1), "minutes"))
+  
+  
+  cat("\n", "Real size of liclust linkage matrix: ", object.size(flInput), "\n")
+    RC <- .ramclustR.liclust(flInput, blocksize, mult, linkage, ramclustR.data$featnames,
+                             timeEnv = timeEnv, n)
+                             
+  }
   else
     stop("No existing clustering method was provided.")
   
@@ -309,35 +344,32 @@ ramclustR <- function(  xcmsObj=NULL,
   
 
 .ramclustR.RCsim <- function(data1, data2, times, sr=NULL, st=NULL, maxt=NULL, maxt_enforce=FALSE, blocksize=2000,
-                            timeEnv = environment())
+                            timeEnv = environment(), blocksEval)
 {
   ##establish some constants for downstream processing
   n<-ncol(data1)
   vlength<-(n*(n-1))/2
   nblocks<-floor(n/blocksize)
   
-  ##create three empty matrices, one each for the correlation matrix, the rt matrix, and the product matrix
-  #ffcor<-ff(vmode="double", dim=c(n, n), init=0)
-  #gc()
-  #ffrt<-ff(vmode="double", dim=c(n, n), init=0)
-  #gc()
-  ffmat<-ff(vmode="double", dim=c(n, n), init=1) ##reset to 1 if necessary
-  gc()
-  #Sys.sleep((n^2)/10000000)
-  #gc()
   
   ##make list of all row and column blocks to evaluate
   eval1<-expand.grid(0:nblocks, 0:nblocks)
   names(eval1)<-c("j", "k") #j for cols, k for rows
   eval1<-eval1[which(eval1[,"j"]<=eval1[,"k"]),] #upper triangle only
   bl<-nrow(eval1)
-  cat('\n', paste("calculating ramclustR similarity: nblocks = ", bl))
+  cat('\n', paste("calculating ramclustR similarity: nblocks = ", sum(blocksEval)))
   cat('\n', "finished:")
   
   RCsim<-function(bl, env)  {
+    gc()
     cat(bl,' ')
     j<-eval1[bl,"j"]  #columns
     k<-eval1[bl,"k"]  #rows
+    
+    # Determine row and column range to process:
+    # startc-stopc are columns
+    # startr-stopr are rows
+    
     startc<-min((1+(j*blocksize)), n)
     if ((j+1)*blocksize > n) {
       stopc<-n} else {
@@ -346,9 +378,9 @@ ramclustR <- function(  xcmsObj=NULL,
     if ((k+1)*blocksize > n) {
       stopr<-n} else {
         stopr<-(k+1)*blocksize}
-    if(startc<=startr) { 
-      mint<-min(abs(outer(range(times[startr:stopr]), range(times[startc:stopc]), FUN="-")))
-      if(mint<=maxt) {
+    
+    # mint doesn't need to be calculated anymore, since we do this in blockpred now
+    
         dt <- abs(outer(times[startr:stopr], times[startc:stopc], FUN="-"))
         temp1<-round(exp(-(( (dt))^2)/(2*(st^2))), 
                      
@@ -368,17 +400,20 @@ ramclustR <- function(  xcmsObj=NULL,
         # set distant entries to 0!
         if(maxt_enforce)
           temp[dt > maxt] <- 1
-        env$ffmat[startr:stopr, startc:stopc]<-temp
-        rm(temp1); rm(temp2); rm(temp)
-        gc()} 
-      if(mint>maxt) {ffmat[startr:stopr, startc:stopc]<- 1}
+        
+        # annotate the rows-columns:
+        rownames(temp) <- as.character(startr:stopr)
+        colnames(temp) <- as.character(startc:stopc)
+        #browser()
+        return(temp)
+        
+    
     }
-    gc()}
+    
   # ffmat[995:1002,995:1002]
   
-  env <- environment()
   ##Call the similarity scoring function
-  system.time(sapply(1:bl, function(bl) RCsim(bl, env)))
+  system.time(blocks <- sapply(seq_len(bl)[blocksEval], function(bl) RCsim(bl, env)))
   #RCsim(bl=1:bl)
   
   timeEnv$b<-Sys.time()
@@ -393,7 +428,7 @@ ramclustR <- function(  xcmsObj=NULL,
   #delete.ff(ffcor)
   #rm(ffcor)
   gc()
-  return(ffmat)
+  return(blocks)
 }
 
 
@@ -453,33 +488,22 @@ ramclustR <- function(  xcmsObj=NULL,
   cat('\n', '\n')    
   cat(paste("fastcluster based clustering complete:", 
             round(difftime(timeEnv$d, timeEnv$c, units="mins"), digits=1), "minutes"))
-  
+  #browser()
   return(RC) 
 }
 
 
-.ramclustR.liclust <- function(ffmat, blocksize, mult, linkage, featnames,
-                               timeEnv = environment())
+.ramclustR.liclust <- function(flInput, blocksize, mult, linkage, featnames,
+                               timeEnv = environment(), n)
 {
-  require(fastliclust)
-  n <- nrow(ffmat)
-  blocksize<-mult*round(blocksize^2/n)
-  flInput <- toLinkmat.ff(ffmat, disconnect = 1, blocksize=10*blocksize)
-  
-  
-  timeEnv$c<-Sys.time()    
-  cat('\n', '\n')
-  cat(paste("RAMClust distances converted to linkage graph matrix:", 
-            round(difftime(timeEnv$c, timeEnv$b, units="mins"), digits=1), "minutes"))
-  
-  
-  cat("\n", "Real size of liclust linkage matrix: ", object.size(flInput), "\n")
+ 
   # fastLiclust performs operation in place.
   fastLiclust(flInput$linkmat, flInput$sim, flInput$weights)
   timeEnv$cc <- Sys.time()
   cat('\n', '\n')
   cat(paste("liclust based clustering complete:", 
             round(difftime(timeEnv$cc, timeEnv$b, units="mins"), digits=1), "minutes"))
+  #browser()
   RC <- toHclust(flInput$linkmat, flInput$sim)
   RC$labels <- featnames
   RC$method <- linkage
