@@ -135,7 +135,8 @@ ramclustR <- function(  xcmsObj=NULL,
                                ramclustR.data$data1,
                                ramclustR.data$data2,
                                ramclustR.data$ExpDes,
-                               timeEnv = timeEnv)
+                               timeEnv = timeEnv,
+                               msfiles = ramclustR.data$msfiles)
                                          
   return(RC)
   
@@ -172,6 +173,10 @@ ramclustR <- function(  xcmsObj=NULL,
  timeEnv = environment()
 )
 {
+  
+  msfiles <- c()
+  msmsfiles <- c()
+  
   require(xcms, quietly=TRUE)
   require(ff, quietly=TRUE)
   require(fastcluster, quietly=TRUE)
@@ -337,7 +342,8 @@ ramclustR <- function(  xcmsObj=NULL,
   
   return(list(
     data1=data1, data2=data2, mzs=mzs, times=times, xcmsOrd=xcmsOrd, featnames=featnames,
-    sr=sr, st=st, maxt=maxt, hmax=hmax, ExpDes=ExpDes
+    sr=sr, st=st, maxt=maxt, hmax=hmax, ExpDes=ExpDes, msfiles=msfiles
+    #, msmsfiles=msmsfiles
   ))
   
 }
@@ -522,7 +528,7 @@ ramclustR <- function(  xcmsObj=NULL,
   
 .ramclustR.postprocess <- function(RC, hmax, deepSplit, minModuleSize, times, mzs, xcmsOrd, collapse, mspout, mslev,
                                    usePheno, xcmsObj, mzdec, data1, data2, ExpDes,
-                                   timeEnv = environment())
+                                   timeEnv = environment(), msfiles)
 {
   n <- ncol(data1)
   
