@@ -114,7 +114,7 @@ ramclustR <- function(  xcmsObj=NULL,
 
   rm(blocks)
   gc()
-  browser()
+  #browser()
   timeEnv$c<-Sys.time()    
   cat('\n', '\n')
   cat(paste("RAMClust distances converted to linkage graph matrix:", 
