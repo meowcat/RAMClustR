@@ -52,7 +52,6 @@ ramclustR <- function(  xcmsObj=NULL,
                        estimate.mem = FALSE
 ) {
   timeEnv <- new.env()
-  
   ramclustR.data <- .ramclustR.preprocess(xcmsObj,
                                          ms, 
                                          idmsms, 
@@ -504,12 +503,13 @@ ramclustR <- function(  xcmsObj=NULL,
 {
  
   # fastLiclust performs operation in place.
-  fastLiclust(flInput$linkmat, flInput$sim, flInput$weights)
+  n <- fastLiclust(flInput$linkmat, flInput$sim, flInput$weights)
   timeEnv$cc <- Sys.time()
   cat('\n', '\n')
   cat(paste("liclust based clustering complete:", 
             round(difftime(timeEnv$cc, timeEnv$b, units="mins"), digits=1), "minutes"))
   #browser()
+  flInput <- crop(flInput)
   RC <- toHclust(flInput$linkmat, flInput$sim)
   RC$labels <- featnames
   RC$method <- linkage
